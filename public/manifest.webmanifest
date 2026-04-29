@@ -1,0 +1,21 @@
+{
+  "name": "GloApp",
+  "short_name": "GloApp",
+  "description": "becoming my highest self",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fdfbfd",
+  "theme_color": "#f3effa",
+  "icons": [
+    {
+      "src": "/app-icon-512.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/app-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
