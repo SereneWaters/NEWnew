@@ -21,7 +21,7 @@ import {
   getListRewardsQueryKey,
   getListVisionItemsQueryKey,
   getGetStatsQueryKey,
-} from "@workspace/api-client-react";
+} from "@/lib/api-client-react/src";
 
 export type Goal = {
   id: string;
