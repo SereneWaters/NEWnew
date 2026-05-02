@@ -1,27 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef } from "react";
 import { format } from "date-fns";
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  useListGoals,
-  useListCheckins,
-  useListRewards,
-  useListVisionItems,
-  useGetStats,
-  useCreateGoal,
-  useUpdateGoal,
-  useDeleteGoal,
-  useCreateCheckin,
-  useCreateReward,
-  useUpdateReward,
-  useDeleteReward,
-  useCreateVisionItem,
-  useDeleteVisionItem,
-  getListGoalsQueryKey,
-  getListCheckinsQueryKey,
-  getListRewardsQueryKey,
-  getListVisionItemsQueryKey,
-  getGetStatsQueryKey,
-} from "@/lib/api-client-react/src";
+import { supabase } from "@/lib/supabase";
 
 export type Goal = {
   id: string;
