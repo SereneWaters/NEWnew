@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { format } from "date-fns";
 import { supabase } from "@/lib/supabase";
 
@@ -57,10 +57,9 @@ interface GloState {
 
 const GloContext = createContext<GloState | undefined>(undefined);
 
-const cap = (s: string) =>
-  s.length ? s[0].toUpperCase() + s.slice(1) : s;
+const cap = (s: string) => (s.length ? s[0].toUpperCase() + s.slice(1) : s);
 
-const DEFAULT_VISION: { imageUrl?: string; text?: string }[] = [
+const DEFAULT_VISION = [
   { imageUrl: "vision-1.png" },
   { imageUrl: "vision-2.png" },
   { imageUrl: "vision-3.png" },
@@ -72,129 +71,98 @@ const DEFAULT_VISION: { imageUrl?: string; text?: string }[] = [
 ];
 
 export function GloProvider({ children }: { children: React.ReactNode }) {
-  const qc = useQueryClient();
-
-  const goalsQ = useListGoals();
-  const checkinsQ = useListCheckins();
-  const rewardsQ = useListRewards();
-  const visionQ = useListVisionItems();
-  const statsQ = useGetStats();
-
-  const invalidateAll = () => {
-    qc.invalidateQueries({ queryKey: getListGoalsQueryKey() });
-    qc.invalidateQueries({ queryKey: getListCheckinsQueryKey() });
-    qc.invalidateQueries({ queryKey: getListRewardsQueryKey() });
-    qc.invalidateQueries({ queryKey: getListVisionItemsQueryKey() });
-    qc.invalidateQueries({ queryKey: getGetStatsQueryKey() });
-  };
-
-  const createGoalM = useCreateGoal({
-    mutation: { onSuccess: invalidateAll },
-  });
-  const updateGoalM = useUpdateGoal({
-    mutation: { onSuccess: invalidateAll },
-  });
-  const deleteGoalM = useDeleteGoal({
-    mutation: { onSuccess: invalidateAll },
-  });
-  const createCheckinM = useCreateCheckin({
-    mutation: { onSuccess: invalidateAll },
-  });
-  const createRewardM = useCreateReward({
-    mutation: { onSuccess: invalidateAll },
-  });
-  const updateRewardM = useUpdateReward({
-    mutation: { onSuccess: invalidateAll },
-  });
-  const deleteRewardM = useDeleteReward({
-    mutation: { onSuccess: invalidateAll },
-  });
-  const createVisionM = useCreateVisionItem({
-    mutation: { onSuccess: invalidateAll },
-  });
-  const deleteVisionM = useDeleteVisionItem({
-    mutation: { onSuccess: invalidateAll },
-  });
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [rewards, setRewards] = useState<Reward[]>([]);
+  const [checkIns, setCheckIns] = useState<CheckIn[]>([]);
+  const [visionBoard, setVisionBoard] = useState<VisionItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   const seededRef = useRef(false);
-  useEffect(() => {
-    if (seededRef.current) return;
-    if (!visionQ.isSuccess) return;
-    if ((visionQ.data ?? []).length > 0) {
-      seededRef.current = true;
-      return;
-    }
-    seededRef.current = true;
-    DEFAULT_VISION.forEach((v, i) => {
-      createVisionM.mutate({
-        data: {
-          position: i,
-          imageUrl: v.imageUrl ?? null,
-          text: v.text ?? null,
-        },
-      });
-    });
-  }, [visionQ.isSuccess, visionQ.data, createVisionM]);
 
-  const goals: Goal[] = useMemo(() => {
-    const checkins = checkinsQ.data ?? [];
-    return (goalsQ.data ?? []).map((g) => {
-      const total = checkins.filter(
-        (c) => c.goalId === g.id && c.status === "done",
-      ).length;
-      return {
+  const loadData = async () => {
+    setIsLoading(true);
+
+    const [goalsRes, rewardsRes, checkinsRes, visionRes] = await Promise.all([
+      supabase.from("goals").select("*").order("created_at"),
+      supabase.from("rewards").select("*").order("created_at"),
+      supabase.from("checkins").select("*").order("created_at"),
+      supabase.from("vision_items").select("*").order("position"),
+    ]);
+
+    const loadedCheckins =
+      (checkinsRes.data ?? []).map((c) => ({
+        id: String(c.id),
+        goalId: String(c.goal_id),
+        date: c.date,
+        status: cap(c.status) as "Done" | "Fail",
+      }));
+
+    setCheckIns(loadedCheckins);
+
+    setGoals(
+      (goalsRes.data ?? []).map((g) => ({
         id: String(g.id),
         title: g.title,
         description: g.description ?? "",
         frequency: cap(g.frequency) as Goal["frequency"],
-        rewardId: g.rewardId != null ? String(g.rewardId) : undefined,
+        rewardId: g.reward_id ? String(g.reward_id) : undefined,
         status: cap(g.status) as Goal["status"],
-        streak: g.streak,
-        totalCheckins: total,
-      };
-    });
-  }, [goalsQ.data, checkinsQ.data]);
+        streak: g.streak ?? 0,
+        totalCheckins: loadedCheckins.filter(
+          (c) => c.goalId === String(g.id) && c.status === "Done"
+        ).length,
+      }))
+    );
 
-  const rewards: Reward[] = useMemo(
-    () =>
-      (rewardsQ.data ?? []).map((r) => ({
+    setRewards(
+      (rewardsRes.data ?? []).map((r) => ({
         id: String(r.id),
         title: r.name,
         isUsed: r.used,
-      })),
-    [rewardsQ.data],
-  );
+      }))
+    );
 
-  const checkIns: CheckIn[] = useMemo(
-    () =>
-      (checkinsQ.data ?? []).map((c) => ({
-        id: String(c.id),
-        goalId: String(c.goalId),
-        date: String(c.date).slice(0, 10),
-        status: cap(c.status) as "Done" | "Fail",
-      })),
-    [checkinsQ.data],
-  );
-
-  const visionBoard: VisionItem[] = useMemo(
-    () =>
-      (visionQ.data ?? []).map((v) => ({
+    const loadedVision =
+      (visionRes.data ?? []).map((v) => ({
         id: String(v.id),
-        src: v.imageUrl ?? undefined,
+        src: v.image_url ?? undefined,
         text: v.text ?? undefined,
-      })),
-    [visionQ.data],
-  );
+      }));
 
-  const stats = useMemo(
-    () => ({
-      successRate: statsQ.data?.successRate ?? 0,
-      totalCheckins: statsQ.data?.totalCheckins ?? 0,
-      currentStreak: statsQ.data?.currentStreak ?? 0,
-      longestStreak: statsQ.data?.longestStreak ?? 0,
-    }),
-    [statsQ.data],
-  );
+    setVisionBoard(loadedVision);
+
+    if (!seededRef.current && loadedVision.length === 0) {
+      seededRef.current = true;
+
+      await supabase.from("vision_items").insert(
+        DEFAULT_VISION.map((v, i) => ({
+          position: i,
+          image_url: v.imageUrl ?? null,
+          text: v.text ?? null,
+        }))
+      );
+
+      return loadData();
+    }
+
+    setIsLoading(false);
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const stats = useMemo(() => {
+    const done = checkIns.filter((c) => c.status === "Done").length;
+    const total = checkIns.length;
+
+    return {
+      successRate: total ? Math.round((done / total) * 100) : 0,
+      totalCheckins: total,
+      currentStreak: Math.max(...goals.map((g) => g.streak), 0),
+      longestStreak: Math.max(...goals.map((g) => g.streak), 0),
+    };
+  }, [checkIns, goals]);
 
   const value: GloState = {
     goals,
@@ -202,88 +170,81 @@ export function GloProvider({ children }: { children: React.ReactNode }) {
     checkIns,
     visionBoard,
     stats,
-    isLoading:
-      goalsQ.isLoading ||
-      checkinsQ.isLoading ||
-      rewardsQ.isLoading ||
-      visionQ.isLoading,
-    addGoal: (goal) => {
-      createGoalM.mutate({
-        data: {
-          title: goal.title,
-          description: goal.description || null,
-          frequency: goal.frequency.toLowerCase() as
-            | "daily"
-            | "weekly"
-            | "custom",
-          rewardId: goal.rewardId ? Number(goal.rewardId) : null,
-        },
+    isLoading,
+
+    addGoal: async (goal) => {
+      await supabase.from("goals").insert({
+        title: goal.title,
+        description: goal.description || null,
+        frequency: goal.frequency.toLowerCase(),
+        reward_id: goal.rewardId ? Number(goal.rewardId) : null,
+        status: "active",
       });
+      loadData();
     },
-    updateGoal: (id, updates) => {
-      updateGoalM.mutate({
-        id: Number(id),
-        data: {
-          ...(updates.title !== undefined ? { title: updates.title } : {}),
-          ...(updates.description !== undefined
-            ? { description: updates.description }
-            : {}),
-          ...(updates.frequency !== undefined
-            ? {
-                frequency: updates.frequency.toLowerCase() as
-                  | "daily"
-                  | "weekly"
-                  | "custom",
-              }
-            : {}),
-          ...(updates.rewardId !== undefined
-            ? {
-                rewardId: updates.rewardId ? Number(updates.rewardId) : null,
-              }
-            : {}),
-          ...(updates.status !== undefined
-            ? {
-                status: updates.status.toLowerCase() as
-                  | "active"
-                  | "completed"
-                  | "archived",
-              }
-            : {}),
-        },
+
+    updateGoal: async (id, updates) => {
+      await supabase
+        .from("goals")
+        .update({
+          ...(updates.title !== undefined && { title: updates.title }),
+          ...(updates.description !== undefined && { description: updates.description }),
+          ...(updates.frequency !== undefined && {
+            frequency: updates.frequency.toLowerCase(),
+          }),
+          ...(updates.rewardId !== undefined && {
+            reward_id: updates.rewardId ? Number(updates.rewardId) : null,
+          }),
+          ...(updates.status !== undefined && {
+            status: updates.status.toLowerCase(),
+          }),
+        })
+        .eq("id", Number(id));
+
+      loadData();
+    },
+
+    deleteGoal: async (id) => {
+      await supabase.from("goals").delete().eq("id", Number(id));
+      loadData();
+    },
+
+    addReward: async (title) => {
+      await supabase.from("rewards").insert({ name: title });
+      loadData();
+    },
+
+    useReward: async (id) => {
+      await supabase.from("rewards").update({ used: true }).eq("id", Number(id));
+      loadData();
+    },
+
+    deleteReward: async (id) => {
+      await supabase.from("rewards").delete().eq("id", Number(id));
+      loadData();
+    },
+
+    checkInGoal: async (goalId, date, status) => {
+      await supabase.from("checkins").insert({
+        goal_id: Number(goalId),
+        date: format(date, "yyyy-MM-dd"),
+        status: status.toLowerCase(),
       });
+      loadData();
     },
-    deleteGoal: (id) => {
-      deleteGoalM.mutate({ id: Number(id) });
-    },
-    addReward: (title) => {
-      createRewardM.mutate({ data: { name: title } });
-    },
-    useReward: (id) => {
-      updateRewardM.mutate({ id: Number(id), data: { used: true } });
-    },
-    deleteReward: (id) => {
-      deleteRewardM.mutate({ id: Number(id) });
-    },
-    checkInGoal: (goalId, date, status) => {
-      createCheckinM.mutate({
-        data: {
-          goalId: Number(goalId),
-          date: format(date, "yyyy-MM-dd"),
-          status: status.toLowerCase() as "done" | "fail",
-        },
+
+    addVisionItem: async (item) => {
+      await supabase.from("vision_items").insert({
+        position: visionBoard.length,
+        image_url: item.src ?? null,
+        text: item.text ?? null,
       });
+      loadData();
     },
-    addVisionItem: (item) => {
-      createVisionM.mutate({
-        data: {
-          position: visionBoard.length,
-          imageUrl: item.src ?? null,
-          text: item.text ?? null,
-        },
-      });
-    },
-    removeVisionItem: (id) => {
-      deleteVisionM.mutate({ id: Number(id) });
+
+    removeVisionItem: async (id) => {
+      await supabase.from("vision_items").delete().eq("id", Number(id));
+      loadData();
     },
   };
 
