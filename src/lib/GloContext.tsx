@@ -1,6 +1,5 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
-import { supabase } from "@/lib/supabase";
 
 export type Goal = {
   id: string;
@@ -57,100 +56,54 @@ interface GloState {
 
 const GloContext = createContext<GloState | undefined>(undefined);
 
-const cap = (s: string) => (s.length ? s[0].toUpperCase() + s.slice(1) : s);
-
-const DEFAULT_VISION = [
-  { imageUrl: "vision-1.png" },
-  { imageUrl: "vision-2.png" },
-  { imageUrl: "vision-3.png" },
-  { imageUrl: "vision-4.png" },
-  { text: "it's already yours" },
-  { imageUrl: "vision-5.png" },
-  { imageUrl: "vision-6.png" },
-  { imageUrl: "vision-7.png" },
+const DEFAULT_VISION: VisionItem[] = [
+  { id: crypto.randomUUID(), src: "vision-1.png" },
+  { id: crypto.randomUUID(), src: "vision-2.png" },
+  { id: crypto.randomUUID(), src: "vision-3.png" },
+  { id: crypto.randomUUID(), src: "vision-4.png" },
+  { id: crypto.randomUUID(), text: "it's already yours" },
+  { id: crypto.randomUUID(), src: "vision-5.png" },
+  { id: crypto.randomUUID(), src: "vision-6.png" },
+  { id: crypto.randomUUID(), src: "vision-7.png" },
 ];
 
 export function GloProvider({ children }: { children: React.ReactNode }) {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [rewards, setRewards] = useState<Reward[]>([]);
   const [checkIns, setCheckIns] = useState<CheckIn[]>([]);
-  const [visionBoard, setVisionBoard] = useState<VisionItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [visionBoard, setVisionBoard] = useState<VisionItem[]>(DEFAULT_VISION);
+  const [loaded, setLoaded] = useState(false);
 
-  const seededRef = useRef(false);
+  // LOAD FROM STORAGE
+  useEffect(() => {
+    const saved = localStorage.getItem("glo-data");
 
-  const loadData = async () => {
-    setIsLoading(true);
+    if (saved) {
+      const parsed = JSON.parse(saved);
 
-    const [goalsRes, rewardsRes, checkinsRes, visionRes] = await Promise.all([
-      supabase.from("goals").select("*").order("created_at"),
-      supabase.from("rewards").select("*").order("created_at"),
-      supabase.from("checkins").select("*").order("created_at"),
-      supabase.from("vision_items").select("*").order("position"),
-    ]);
-
-    const loadedCheckins =
-      (checkinsRes.data ?? []).map((c) => ({
-        id: String(c.id),
-        goalId: String(c.goal_id),
-        date: c.date,
-        status: cap(c.status) as "Done" | "Fail",
-      }));
-
-    setCheckIns(loadedCheckins);
-
-    setGoals(
-      (goalsRes.data ?? []).map((g) => ({
-        id: String(g.id),
-        title: g.title,
-        description: g.description ?? "",
-        frequency: cap(g.frequency) as Goal["frequency"],
-        rewardId: g.reward_id ? String(g.reward_id) : undefined,
-        status: cap(g.status) as Goal["status"],
-        streak: g.streak ?? 0,
-        totalCheckins: loadedCheckins.filter(
-          (c) => c.goalId === String(g.id) && c.status === "Done"
-        ).length,
-      }))
-    );
-
-    setRewards(
-      (rewardsRes.data ?? []).map((r) => ({
-        id: String(r.id),
-        title: r.name,
-        isUsed: r.used,
-      }))
-    );
-
-    const loadedVision =
-      (visionRes.data ?? []).map((v) => ({
-        id: String(v.id),
-        src: v.image_url ?? undefined,
-        text: v.text ?? undefined,
-      }));
-
-    setVisionBoard(loadedVision);
-
-    if (!seededRef.current && loadedVision.length === 0) {
-      seededRef.current = true;
-
-      await supabase.from("vision_items").insert(
-        DEFAULT_VISION.map((v, i) => ({
-          position: i,
-          image_url: v.imageUrl ?? null,
-          text: v.text ?? null,
-        }))
-      );
-
-      return loadData();
+      setGoals(parsed.goals || []);
+      setRewards(parsed.rewards || []);
+      setCheckIns(parsed.checkIns || []);
+      setVisionBoard(parsed.visionBoard || DEFAULT_VISION);
     }
 
-    setIsLoading(false);
-  };
-
-  useEffect(() => {
-    loadData();
+    setLoaded(true);
   }, []);
+
+  // SAVE TO STORAGE
+  useEffect(() => {
+    if (!loaded) return;
+
+    localStorage.setItem(
+      "glo-data",
+      JSON.stringify({
+        goals,
+        rewards,
+        checkIns,
+        visionBoard,
+      })
+    );
+  }, [goals, rewards, checkIns, visionBoard, loaded]);
 
   const stats = useMemo(() => {
     const done = checkIns.filter((c) => c.status === "Done").length;
@@ -158,7 +111,7 @@ export function GloProvider({ children }: { children: React.ReactNode }) {
 
     return {
       successRate: total ? Math.round((done / total) * 100) : 0,
-      totalCheckins: total,
+      totalCheckins: done,
       currentStreak: Math.max(...goals.map((g) => g.streak), 0),
       longestStreak: Math.max(...goals.map((g) => g.streak), 0),
     };
@@ -170,81 +123,89 @@ export function GloProvider({ children }: { children: React.ReactNode }) {
     checkIns,
     visionBoard,
     stats,
-    isLoading,
+    isLoading: !loaded,
 
-    addGoal: async (goal) => {
-      await supabase.from("goals").insert({
-        title: goal.title,
-        description: goal.description || null,
-        frequency: goal.frequency.toLowerCase(),
-        reward_id: goal.rewardId ? Number(goal.rewardId) : null,
-        status: "active",
-      });
-      loadData();
+    addGoal: (goal) => {
+      setGoals((prev) => [
+        ...prev,
+        {
+          ...goal,
+          id: crypto.randomUUID(),
+          streak: 0,
+          totalCheckins: 0,
+        },
+      ]);
     },
 
-    updateGoal: async (id, updates) => {
-      await supabase
-        .from("goals")
-        .update({
-          ...(updates.title !== undefined && { title: updates.title }),
-          ...(updates.description !== undefined && { description: updates.description }),
-          ...(updates.frequency !== undefined && {
-            frequency: updates.frequency.toLowerCase(),
-          }),
-          ...(updates.rewardId !== undefined && {
-            reward_id: updates.rewardId ? Number(updates.rewardId) : null,
-          }),
-          ...(updates.status !== undefined && {
-            status: updates.status.toLowerCase(),
-          }),
-        })
-        .eq("id", Number(id));
-
-      loadData();
+    updateGoal: (id, updates) => {
+      setGoals((prev) =>
+        prev.map((g) => (g.id === id ? { ...g, ...updates } : g))
+      );
     },
 
-    deleteGoal: async (id) => {
-      await supabase.from("goals").delete().eq("id", Number(id));
-      loadData();
+    deleteGoal: (id) => {
+      setGoals((prev) => prev.filter((g) => g.id !== id));
+      setCheckIns((prev) => prev.filter((c) => c.goalId !== id));
     },
 
-    addReward: async (title) => {
-      await supabase.from("rewards").insert({ name: title });
-      loadData();
+    addReward: (title) => {
+      setRewards((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          title,
+          isUsed: false,
+        },
+      ]);
     },
 
-    useReward: async (id) => {
-      await supabase.from("rewards").update({ used: true }).eq("id", Number(id));
-      loadData();
+    useReward: (id) => {
+      setRewards((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, isUsed: true } : r))
+      );
     },
 
-    deleteReward: async (id) => {
-      await supabase.from("rewards").delete().eq("id", Number(id));
-      loadData();
+    deleteReward: (id) => {
+      setRewards((prev) => prev.filter((r) => r.id !== id));
     },
 
-    checkInGoal: async (goalId, date, status) => {
-      await supabase.from("checkins").insert({
-        goal_id: Number(goalId),
+    checkInGoal: (goalId, date, status) => {
+      const newCheckin: CheckIn = {
+        id: crypto.randomUUID(),
+        goalId,
         date: format(date, "yyyy-MM-dd"),
-        status: status.toLowerCase(),
-      });
-      loadData();
+        status,
+      };
+
+      setCheckIns((prev) => [...prev, newCheckin]);
+
+      if (status === "Done") {
+        setGoals((prev) =>
+          prev.map((g) =>
+            g.id === goalId
+              ? {
+                  ...g,
+                  streak: g.streak + 1,
+                  totalCheckins: g.totalCheckins + 1,
+                }
+              : g
+          )
+        );
+      }
     },
 
-    addVisionItem: async (item) => {
-      await supabase.from("vision_items").insert({
-        position: visionBoard.length,
-        image_url: item.src ?? null,
-        text: item.text ?? null,
-      });
-      loadData();
+    addVisionItem: (item) => {
+      setVisionBoard((prev) => [
+        ...prev,
+        {
+          ...item,
+          id: crypto.randomUUID(),
+        },
+      ]);
     },
 
-    removeVisionItem: async (id) => {
-      await supabase.from("vision_items").delete().eq("id", Number(id));
-      loadData();
+    removeVisionItem: (id) => {
+      setVisionBoard((prev) => prev.filter((v) => v.id !== id));
     },
   };
 
@@ -253,6 +214,8 @@ export function GloProvider({ children }: { children: React.ReactNode }) {
 
 export function useGlo() {
   const context = useContext(GloContext);
-  if (!context) throw new Error("useGlo must be used within a GloProvider");
+  if (!context) {
+    throw new Error("useGlo must be used within a GloProvider");
+  }
   return context;
 }
