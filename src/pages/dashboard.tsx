@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { CheckInModal } from "@/components/CheckInModal";
 
 export default function Dashboard() {
   const { goals, checkIns, checkInGoal, rewards, useReward, addReward, deleteReward, addGoal, visionBoard, stats } = useGlo();
@@ -29,6 +30,9 @@ export default function Dashboard() {
   const [newGoalDesc, setNewGoalDesc] = useState("");
   const [newGoalFreq, setNewGoalFreq] = useState("Daily");
   const [newGoalReward, setNewGoalReward] = useState("none");
+  
+  // Modal state
+  const [checkInModal, setCheckInModal] = useState<{ goalId: string; goalTitle: string } | null>(null);
 
   const handleAddReward = (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,6 +56,13 @@ export default function Dashboard() {
       setNewGoalDesc("");
       setNewGoalFreq("Daily");
       setNewGoalReward("none");
+    }
+  };
+
+  const handleCheckIn = (date: Date, status: "Done" | "Fail") => {
+    if (checkInModal) {
+      checkInGoal(checkInModal.goalId, date, status);
+      setCheckInModal(null);
     }
   };
 
@@ -90,7 +101,7 @@ export default function Dashboard() {
           <div className="relative w-16 h-16 flex items-center justify-center">
             <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
               <path strokeDasharray="100, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="hsl(var(--muted))" strokeWidth="3" />
-              <path strokeDasharray={`${successRate}, 100`} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="hsl(var(--primary))" strokeWidth="3" className="transition-all duration-1000" />
+              <path strokeDasharray={`${successRate}, 100`} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="hsl(var(--primary))" strokeWidth="3" />
             </svg>
             <span className="absolute text-lg font-serif">{successRate}%</span>
           </div>
@@ -188,8 +199,15 @@ export default function Dashboard() {
                             <button onClick={() => checkInGoal(goal.id, today, 'Done')} className="w-10 h-10 rounded-full bg-green-100/50 hover:bg-green-200 flex items-center justify-center text-green-600 transition-colors">
                               <Check className="w-5 h-5" />
                             </button>
-                            <button onClick={() => checkInGoal(goal.id, today, 'Fail')} className="w-10 h-10 rounded-full bg-red-100/50 hover:bg-red-200 flex items-center justify-center text-red-500 transition-colors">
+                            <button onClick={() => checkInGoal(goal.id, today, 'Fail')} className="w-10 h-10 rounded-full bg-red-100/50 hover:bg-red-200 flex items-center justify-center text-red-600 transition-colors">
                               <X className="w-5 h-5" />
+                            </button>
+                            <button 
+                              onClick={() => setCheckInModal({ goalId: goal.id, goalTitle: goal.title })}
+                              className="w-10 h-10 rounded-full bg-blue-100/50 hover:bg-blue-200 flex items-center justify-center text-blue-600 transition-colors"
+                              title="Log for a different day"
+                            >
+                              <CalendarIcon className="w-5 h-5" />
                             </button>
                           </>
                         )}
@@ -250,7 +268,7 @@ export default function Dashboard() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="desc">Description</Label>
-                <Textarea id="desc" value={newGoalDesc} onChange={e => setNewGoalDesc(e.target.value)} placeholder="A little more detail..." className="bg-white/50 border-white/50 rounded-xl resize-none" rows={2} />
+                <Textarea id="desc" value={newGoalDesc} onChange={e => setNewGoalDesc(e.target.value)} placeholder="A little more detail..." className="bg-white/50 border-white/50 rounded-xl resize-none" />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -405,6 +423,15 @@ export default function Dashboard() {
           </Card>
         </div>
       </div>
+
+      {/* Check-in Modal */}
+      {checkInModal && (
+        <CheckInModal
+          goalTitle={checkInModal.goalTitle}
+          onCheckIn={handleCheckIn}
+          onClose={() => setCheckInModal(null)}
+        />
+      )}
 
       <div className="text-center py-12 pb-8">
         <p className="font-serif text-xl text-muted-foreground italic">"You are becoming everything you dreamed of. Keep going."</p>
